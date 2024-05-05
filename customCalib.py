@@ -9,6 +9,8 @@ desc_ref = None
 
 N = 5 # leads to less noisy results?
 # N = 10
+MIN_MATCH_COUNT = 4
+DIST_RATIO = 0.7
 
 def init():
     global akaze, matcher, ref_img, kpts_ref, desc_ref
@@ -46,31 +48,31 @@ def process(frame):
     # Apply ratio test
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.7 * n.distance:
+        if m.distance < DIST_RATIO * n.distance:
             good_matches.append(m)
 
+    if not len(good_matches) > MIN_MATCH_COUNT:
+        return frame
+
     # Find homography
-    if len(good_matches) > 4:
-        src_pts = np.float32([kpts_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-        dst_pts = np.float32([kpts[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    src_pts = np.float32([kpts_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([kpts[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-        M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
 
-        if isHomographyValid(M):
-            # Draw a rectangle that marks the found model in the frame
-            h, w = ref_img.shape
-            pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
-            dst = cv2.perspectiveTransform(pts, M)
+    if not isHomographyValid(M):
+        return frame
 
-            frame = cv2.polylines(frame, [np.int32(dst)], True, 255, 3, cv2.LINE_AA)
+    # Draw a rectangle that marks the found model in the frame
+    h, w = ref_img.shape
+    pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
+    dst = cv2.perspectiveTransform(pts, M)
+
+    return cv2.polylines(frame, [np.int32(dst)], True, 255, 3, cv2.LINE_AA)
             
     # else:
     #     # Draw the matches
     #     frame = cv2.drawMatches(ref_img, kpts_ref, gray, kpts, good_matches, None)
-
-    #     # # Display the image
-    #     # cv2.imshow('Matches', img_matches)
-    cv2.imshow('Output', frame)
 
 init()
 
@@ -86,8 +88,9 @@ try:
         if k == 27:
             break
 
-        # cv2.imshow('Img',img)
-        process(img)
+        output = process(img)
+        cv2.imshow('Output', output)
+
 except Exception as e:
     print(e)
 finally:
