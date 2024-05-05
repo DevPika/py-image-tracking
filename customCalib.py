@@ -1,10 +1,14 @@
 import cv2
+import numpy as np
 
 akaze = None
 matcher = None
 ref_img = None
 kpts_ref = None
 desc_ref = None
+
+N = 5 # leads to less noisy results?
+# N = 10
 
 def init():
     global akaze, matcher, ref_img, kpts_ref, desc_ref
@@ -17,7 +21,17 @@ def init():
  
     # matcher = cv.DescriptorMatcher_create(cv.DescriptorMatcher_BRUTEFORCE_HAMMING)
     matcher = cv2.BFMatcher()
- 
+
+def isHomographyValid(M):
+    if M is None:
+        return False
+
+    # Calculate the determinant of the matrix
+    det = M[0, 0] * M[1, 1] - M[1, 0] * M[0, 1]
+
+    # Check if the determinant is in the range
+    return 1/N < abs(det) and abs(det) < N
+
 def process(frame):
     # Convert the frame to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -35,11 +49,28 @@ def process(frame):
         if m.distance < 0.7 * n.distance:
             good_matches.append(m)
 
-    # Draw the matches
-    img_matches = cv2.drawMatches(ref_img, kpts_ref, gray, kpts, good_matches, None)
+    # Find homography
+    if len(good_matches) > 4:
+        src_pts = np.float32([kpts_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kpts[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-    # Display the image
-    cv2.imshow('Matches', img_matches)
+        M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+        if isHomographyValid(M):
+            # Draw a rectangle that marks the found model in the frame
+            h, w = ref_img.shape
+            pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
+            dst = cv2.perspectiveTransform(pts, M)
+
+            frame = cv2.polylines(frame, [np.int32(dst)], True, 255, 3, cv2.LINE_AA)
+            
+    # else:
+    #     # Draw the matches
+    #     frame = cv2.drawMatches(ref_img, kpts_ref, gray, kpts, good_matches, None)
+
+    #     # # Display the image
+    #     # cv2.imshow('Matches', img_matches)
+    cv2.imshow('Output', frame)
 
 init()
 
